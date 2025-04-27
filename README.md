@@ -1,1 +1,3 @@
-# mpm_hdf5_to_lpp
+# mpm-tools
+
+This is a repository used for treating the cb-geo MPM software results files.
