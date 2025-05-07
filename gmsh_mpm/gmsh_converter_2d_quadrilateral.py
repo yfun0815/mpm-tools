@@ -5,10 +5,10 @@ import shutil
 
 # --- USER INPUTS ---
 #in_dir: directory of .csv file to be converted
-in_dir = '/home/yifan/simulation/rockfill/'
+in_dir = '/home/yifan/simulation/P1case1/'
 #ori_file: name of .csv file to be converted (must be comma-delimited .csv)
 #convert .msh to .csv before using this tool
-ori_file = 'dam.csv'
+ori_file = 'Case1.csv'
 #mesh_flag: if true, will output mesh.txt file
 mesh_flag = True
 #entity_sets_flag: if true, will output entity_sets.json files for each surface
@@ -55,13 +55,17 @@ def gmsh_converter_tet(in_dir,
     #Surface_tags: dictionary of tags associated with each bounding box surface
     #tag numbers defined in gmsh input file
     Line_tags = {
-        5: Line_Xmin,
-        6: Line_Xmin,
-        2: Line_Xmax,
+        7: Line_Xmin,
+        4: Line_Xmin,
+        6: Line_Xmax,
         3: Line_Xmax,
         1: Line_Ymin,
-        4: Line_Ymax,
+        2: Line_Ymax,
     }
+    Surface_tags = {
+        "Soil": 1,
+        "Water": 2
+        }
 
     # --- 1. SETUP ---
     # - 1.1 Directory setup -
@@ -114,7 +118,7 @@ def gmsh_converter_tet(in_dir,
     df_e = df_e.iloc[Ne:Me, :]
     #correct element indices to start from 0
     df_e[0] = df_e[0].apply(lambda x: int(x) - 1)
-    for i in [5, 6, 7]:
+    for i in [5, 6, 7, 8]:
         df_e[i] = df_e[i].apply(lambda x: int(x) - 1 if pd.notnull(x) else x)
     #delete gmsh output column which provides no useful information
     del df_e[2]
@@ -132,7 +136,7 @@ def gmsh_converter_tet(in_dir,
 
         df_e_mesh = df_e
         #slice to get only surface elements, calculate number of surface elements
-        df_e_mesh = df_e_mesh.loc[df_e_mesh.count(axis=1) == 7, [5, 6, 7]]
+        df_e_mesh = df_e_mesh.loc[df_e_mesh.count(axis=1) == 8, [5, 6, 7, 8]]
         nelements_mesh = df_e_mesh.shape[0]
 
         #cast IDs to int then str (no trailing .0), reset headers
@@ -177,8 +181,14 @@ def gmsh_converter_tet(in_dir,
         # - 5.1 Create/reset/setup dataframes (outside loop) -
         df_entity_sets = pd.DataFrame()  #body
         #find location of start header, create footer
-        first_tag = list(Line_tags.keys())[0]
+        first_line_tag = list(Line_tags.keys())[0]
+        if Surface_tags:
+            first_surface_tag = list(Surface_tags.values())[0]
         # yapf: disable
+        df_entity_sets_middle_end = pd.DataFrame([
+            ['', '', '', ']', '',],
+            ['', '', '}', '', '',],
+            ['', ']', '', '', '',]]) #footer
         df_entity_sets_end = pd.DataFrame([
             ['', '', '', ']', '',],
             ['', '', '}', '', '',],
@@ -186,67 +196,124 @@ def gmsh_converter_tet(in_dir,
             ['}', '', '', '', '',]]) #footer
         # yapf: enable
 
-        # - 5.2 Create & format parts of surface dataframes (inside loop) -
-        #loop through surfaces
+        # - 5.2 Create & format parts of line dataframes (inside loop) -
         for tag in Line_tags:
-            df_tag = df_e
+            df_tag = df_e.copy()
             
-            #slice to get only line on tagged surface
+            # slice to get only line on tagged line
             df_tag = df_tag[df_tag.count(axis=1) == 6]
             df_tag = df_tag.loc[(df_tag[4] == tag), [5, 6]]
-
-            #create 1 column of all node indices for elements on tagged surface
+            
+            # create 1 column of all node indices for elements on tagged line
             df_tag = df_tag.stack().reset_index()
-            df_tag = df_tag.drop("level_0", axis=1)
-            df_tag = df_tag.drop("level_1", axis=1)
-
-            #reformat cols to entity_sets layout and eliminate node duplicates
+            df_tag = df_tag.drop(["level_0", "level_1"], axis=1)
+            
+            # reformat cols to entity_sets layout and eliminate node duplicates
             df_tag[1] = ''
             df_tag[2] = ''
             df_tag[3] = ''
-            #create column 4 with node number and suffix ','
             df_tag[4] = df_tag[0].astype(int).astype(str) + ','
-            #eliminate duplicate node indices on tagged surface, empty column 0
+            
             df_tag = df_tag.drop_duplicates(subset=[0])
             df_tag[0] = ''
-            # remove suffix ',' from last row of nodes, reset indices
             df_tag.loc[df_tag.index[-1], 4] = df_tag.loc[df_tag.index[-1], 4].rstrip(",")
-            df_tag = df_tag.reset_index().drop("index", axis=1)
+            df_tag = df_tag.reset_index(drop=True)
 
-            # - 5.3 Create header dataframes -
-            #create headers
-            # yapf: disable
-            df_entity_sets_start = pd.DataFrame([
-                ['{', '', '', '', '',],
-                ['', '"node_sets": [', '', '', '',],
-                ['', '', '{', '', '',],
-                ['', '', '', '"id": '+str(tag)+',', '',],
-                ['', '', '', '"set": [', '',]]) #start header
-            df_entity_sets_join = pd.DataFrame([
-                ['', '', '', ']', '',],
-                ['', '', '},', '', '',],
-                ['', '', '{', '', '',],
-                ['', '', '', '"id": '+str(tag)+',', '',],
-                ['', '', '', '"set": [', '',]]) #middle header
-            # yapf: enable
-
-            #select whether first entity set header or not
-            if tag == first_tag:
-                df_entity_sets_pre = df_entity_sets_start  #start header
+            # - Create header dataframes -
+            if tag == first_line_tag:
+                # first tag: node_sets start
+                df_entity_sets_pre = pd.DataFrame([
+                    ['{', '', '', '', ''],
+                    ['', '"node_sets": [', '', '', ''],
+                    ['', '', '{', '', ''],
+                    ['', '', '', f'"id": {tag},', ''],
+                    ['', '', '', '"set": [', '']
+                ])
             else:
-                df_entity_sets_pre = df_entity_sets_join  #middle header
+                # following tags: node_sets join
+                df_entity_sets_pre = pd.DataFrame([
+                    ['', '', '', ']', ''],
+                    ['', '', '},', '', ''],
+                    ['', '', '{', '', ''],
+                    ['', '', '', f'"id": {tag},', ''],
+                    ['', '', '', '"set": [', '']
+                ])
 
-            # - 5.4 Concatenate each surface dataframe & format (inside loop) -
+            # - Concatenate each line dataframe -
             df_entity_sets = pd.concat(
                 [df_entity_sets, df_entity_sets_pre, df_tag],
                 axis=0,
-                ignore_index=True)
+                ignore_index=True
+            )
+        if Surface_tags:
+            df_entity_sets = pd.concat([df_entity_sets, df_entity_sets_middle_end],
+                                           axis=0,
+                                           ignore_index=True)
+        if Surface_tags:
+            df_entity_sets = pd.concat(
+                [df_entity_sets, pd.DataFrame([','])],
+                axis=0,
+                ignore_index=True
+        )
+        # ------------------------------------------------------
+        # ------------------------------------------------------
+        for tag in Surface_tags.values():
+            df_tag = df_e.copy()
+            
+            # slice to get only elements on tagged surface
+            df_tag = df_tag[df_tag.count(axis=1) == 8]
+            df_tag = df_tag.loc[(df_tag[4] == tag)]
+            # create 1 column of all node indices for elements on tagged surface
+            df_tag = df_tag.reset_index()
+            df_tag = df_tag[['index']]
+            df_tag = df_tag.reset_index(drop=True)
+            # reformat cols to entity_sets layout and eliminate node duplicates
+            df_tag[1] = ''
+            df_tag[2] = ''
+            df_tag[3] = ''
+            if tag == first_surface_tag:
+                df_tag[4] = (df_tag['index'].astype(int) - df_tag.loc[0, 'index']).astype(str) + ','
+                last_index = len(df_tag)
+            else:
+                df_tag[4] = (df_tag['index'].astype(int) - df_tag.loc[0, 'index'] +last_index).astype(str) + ','
+            df_tag = df_tag.drop_duplicates(subset=['index'])
+            
+            df_tag['index'] = ''
+            
+            df_tag.loc[df_tag.index[-1], 4] = df_tag.loc[df_tag.index[-1], 4].rstrip(",")
+            df_tag = df_tag.reset_index(drop=True)
+            
+            # - Create header dataframes for surface: cell_sets! -
+            if tag == first_surface_tag:
+                # first tag: node_sets start
+                df_entity_sets_pre = pd.DataFrame([
+                    ['', '"cell_sets": [', '', '', ''],
+                    ['', '', '{', '', ''],
+                    ['', '', '', f'"id": {tag},', ''],
+                    ['', '', '', '"set": [', '']
+                ])
+            else:
+                # following tags: node_sets join
+                df_entity_sets_pre = pd.DataFrame([
+                    ['', '', '', ']', ''],
+                    ['', '', '},', '', ''],
+                    ['', '', '{', '', ''],
+                    ['', '', '', f'"id": {tag},', ''],
+                    ['', '', '', '"set": [', '']
+                ])
+            
+            # - Concatenate each surface dataframe -
+            df_entity_sets = pd.concat(
+                [df_entity_sets, df_entity_sets_pre, df_tag],
+                axis=0,
+                ignore_index=True
+            )
 
         # - 5.5 Add footer to dataframe (outside loop) -
         df_entity_sets = pd.concat([df_entity_sets, df_entity_sets_end],
                                    axis=0,
                                    ignore_index=True)
-
+        
         # - 5.6 Export to tagged entity_sets_file as a .json -
         if not os.path.isfile(in_dir1 + entity_sets_file + '.json'):
             df_entity_sets.to_csv(in_dir1 + entity_sets_file + '.json',
