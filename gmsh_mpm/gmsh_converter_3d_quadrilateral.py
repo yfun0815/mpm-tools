@@ -5,10 +5,10 @@ import shutil
 
 # --- USER INPUTS ---
 #in_dir: directory of .csv file to be converted
-in_dir = '/home/yifan/tunnel/'
+in_dir = '/home/yifan/tunnel/fake3d/'
 #ori_file: name of .csv file to be converted (must be comma-delimited .csv)
 #convert .msh to .csv before using this tool
-ori_file = 'tunnel2d.csv'
+ori_file = 'tunnel_fake3d.csv'
 #mesh_flag: if true, will output mesh.txt file
 mesh_flag = True
 #entity_sets_flag: if true, will output entity_sets.json files for each surface
@@ -19,11 +19,14 @@ entity_sets_flag = True
 velocity_constraints_flag = True
 #velocity constraints: insert desired values per direction; X=0, Y=1, Z=2
 #() for no BC on that bounding box surface; None for no BC in that direction
-Line_Xmin = (0, None)
-Line_Xmax = (0, None)
-Line_Ymin = (0, 0)
-Line_Ymax = (None, None)
-
+Surface_Xmin = (0, None, None)
+Surface_Xmax = (0, None, None)
+Surface_Ymin = (0, 0, 0)
+Surface_Ymax = (None, None, None)
+Surface_Zmin = (None, None, 0)
+Surface_Zmax = (None, None, 0)
+Tunnel_side = (None, None, None)
+Tunnel_front = (None, None, None)
 
 # --------------------------------------------------------------------
 def gmsh_converter_tet(in_dir,
@@ -31,13 +34,14 @@ def gmsh_converter_tet(in_dir,
                        mesh_flag,
                        entity_sets_flag,
                        velocity_constraints_flag,
-                       Line_Xmin=pd.DataFrame(),
-                       Line_Xmax=pd.DataFrame(),
-                       Line_Ymin=pd.DataFrame(),
-                       Line_Ymax=pd.DataFrame(),
-                       Tunnel_face=pd.DataFrame(),
-                       Up_liner=pd.DataFrame(),
-                       Bot_liner=pd.DataFrame()):
+                       Surface_Xmin=pd.DataFrame(),
+                       Surface_Xmax=pd.DataFrame(),
+                       Surface_Ymin=pd.DataFrame(),
+                       Surface_Ymax=pd.DataFrame(),
+                       Surface_Zmin=pd.DataFrame(),
+                       Surface_Zmax=pd.DataFrame(),
+                       Tunnel_side=pd.DataFrame(),
+                       Tunnel_front=pd.DataFrame()):
 
     # --- 0. USER INPUTS (CUSTOMIZATIONS) ---
     #mesh_file: name of converted mesh.txt
@@ -55,34 +59,27 @@ def gmsh_converter_tet(in_dir,
     elements_file = 'elements_all.csv'
     #dflag: if true, will delete files/folders if already exist
     dflag = True
-    #Surface_tags: dictionary of tags associated with each bounding box surface
+    #Volume_tags: dictionary of tags associated with each bounding box surface
     #tag numbers defined in gmsh input file
-    Line_tags = {
-        **dict.fromkeys([20,23,26,29,32,35,38,41], Line_Xmin),
-        **dict.fromkeys([22,25,28,31,34,37,40,43], Line_Xmax),
-        **dict.fromkeys([1,2], Line_Ymin),
-        **dict.fromkeys([17,18], Line_Ymax),
-        **dict.fromkeys([24,27,30], Tunnel_face),
-        **dict.fromkeys([9], Up_liner),
-        **dict.fromkeys([3], Bot_liner),
-    }
     Surface_tags = {
-        "fenzhinian2_1":1,
-        "zatian1":8,
-        "zatian2":16,
-        "niantu1":7,
-        "niantu2":15,
-        "yunizhi1":6,
-        "yunizhi2":14,
-        "nianzhifen1":4,
-        "nianzhifen2":12,
-        "nianzhifen3":5,
-        "nianzhifen4":13,
-        "fenzhinian1_1":3,
-        "fenzhinian1_2":11,
-        "fenzhinian2_2":9,
-        "fenzhinian2_3":2,
-        "fenzhinian2_4":10
+        **dict.fromkeys([218,196,174,152,130,108,86,64], Surface_Xmin),
+        **dict.fromkeys([386,364,342,320,298,276,254,232], Surface_Xmax),
+        **dict.fromkeys([52,228], Surface_Ymin),
+        **dict.fromkeys([214,390], Surface_Ymax),
+        **dict.fromkeys(range(1, 17), Surface_Zmin),
+        **dict.fromkeys([65,87,109,131,153,175,197,219,241,263,285,307,329,351,373,395], Surface_Zmax),
+        **dict.fromkeys([60,126], Tunnel_side),
+        **dict.fromkeys([78,100,122], Tunnel_front)
+
+    }
+    Volume_tags = {
+        "zatian1":8,"zatian2":16,
+        "niantu1":7,"niantu2":15,
+        "yunizhi1":6,"yunizhi2":14,
+        "nianzhifen1":5,"nianzhifen2":13,"nianzhifen3":4,"nianzhifen4":12,
+        "fenzhinian1_1":3,"fenzhinian1_2":11,
+        "fenzhinian2_1":1,"fenzhinian2_2":2,"fenzhinian2_3":9,"fenzhinian2_4":10,
+        "Tunnel1":2,"Tunnel2":3,"Tunnel3":4
         }
 
     # --- 1. SETUP ---
@@ -101,13 +98,13 @@ def gmsh_converter_tet(in_dir,
             quit()
 
     # - 1.2 Read the csv file -
-    df = pd.read_csv(in_dir1 + ori_file, header=None)
+    df = pd.read_csv(in_dir1 + ori_file, header=None, low_memory=False)
 
     # - 1.3 Create working conversion files and read their dataframes -
     shutil.copyfile(in_dir1 + ori_file, in_dir2 + nodes_file)
     shutil.copyfile(in_dir1 + ori_file, in_dir2 + elements_file)
-    df_n = pd.read_csv(in_dir2 + nodes_file, header=None)
-    df_e = pd.read_csv(in_dir2 + elements_file, header=None)
+    df_n = pd.read_csv(in_dir2 + nodes_file, header=None, low_memory=False)
+    df_e = pd.read_csv(in_dir2 + elements_file, header=None, low_memory=False)
 
     # - 1.4 Locate division between nodes and elements -
     Nlist = df.index[df[0] == '$EndNodes'].tolist()
@@ -136,7 +133,7 @@ def gmsh_converter_tet(in_dir,
     df_e = df_e.iloc[Ne:Me, :]
     #correct element indices to start from 0
     df_e[0] = df_e[0].apply(lambda x: int(x) - 1)
-    for i in [5, 6, 7, 8]:
+    for i in [5, 6, 7, 8, 9, 10, 11, 12]:
         df_e[i] = df_e[i].apply(lambda x: int(x) - 1 if pd.notnull(x) else x)
     #delete gmsh output column which provides no useful information
     del df_e[2]
@@ -154,13 +151,14 @@ def gmsh_converter_tet(in_dir,
 
         df_e_mesh = df_e
         #slice to get only surface elements, calculate number of surface elements
-        df_e_mesh = df_e_mesh.loc[df_e_mesh.count(axis=1) == 8, [5, 6, 7, 8]]
+        df_e_mesh = df_e_mesh.loc[df_e_mesh.count(axis=1) == 12, [5, 6, 7, 8, 9, 10, 11, 12]]
+        
         nelements_mesh = df_e_mesh.shape[0]
-
+        
         #cast IDs to int then str (no trailing .0), reset headers
         df_e_mesh = df_e_mesh.astype(int).astype(str)
         df_e_mesh.columns = range(df_e_mesh.columns.size)
-
+        
         #create header
         # yapf: disable
         df_mesh = pd.DataFrame([
@@ -168,14 +166,15 @@ def gmsh_converter_tet(in_dir,
             ['#!', 'elementNumPoints', 3],
             [str(nnodes), str(nelements_mesh), '']])
         # yapf: enable
-
+        
         # - 4.2 Assemble parts & format -
         #assemble mesh.txt dataframe, remove extra trailing columns
         df_mesh = pd.concat([df_mesh, df_n_mesh, df_e_mesh],
                             axis=0,
                             ignore_index=True)
-        df_mesh = df_mesh.drop(df_mesh.columns[[4, 5, 6]], axis=1)
-
+        
+        df_mesh = df_mesh.drop(df_mesh.columns[[8, 9, 10, 11]], axis=1)
+        
         # - 4.3 Export to .txt mesh_file -
         if not os.path.isfile(in_dir1 + mesh_file):
             df_mesh.to_csv(in_dir1 + mesh_file,
@@ -199,9 +198,9 @@ def gmsh_converter_tet(in_dir,
         # - 5.1 Create/reset/setup dataframes (outside loop) -
         df_entity_sets = pd.DataFrame()  #body
         #find location of start header, create footer
-        first_line_tag = list(Line_tags.keys())[0]
-        if Surface_tags:
-            first_surface_tag = list(Surface_tags.values())[0]
+        first_surface_tag = list(Surface_tags.keys())[0]
+        if Volume_tags:
+            first_volume_tag = list(Volume_tags.values())[0]
         # yapf: disable
         df_entity_sets_middle_end = pd.DataFrame([
             ['', '', '', ']', '',],
@@ -215,12 +214,12 @@ def gmsh_converter_tet(in_dir,
         # yapf: enable
 
         # - 5.2 Create & format parts of line dataframes (inside loop) -
-        for tag in Line_tags:
+        for tag in Surface_tags:
             df_tag = df_e.copy()
             
             # slice to get only line on tagged line
-            df_tag = df_tag[df_tag.count(axis=1) == 6]
-            df_tag = df_tag.loc[(df_tag[4] == tag), [5, 6]]
+            df_tag = df_tag[df_tag.count(axis=1) == 8]
+            df_tag = df_tag.loc[(df_tag[4] == tag), [5, 6, 7, 8]]
             
             # create 1 column of all node indices for elements on tagged line
             df_tag = df_tag.stack().reset_index()
@@ -238,7 +237,7 @@ def gmsh_converter_tet(in_dir,
             df_tag = df_tag.reset_index(drop=True)
 
             # - Create header dataframes -
-            if tag == first_line_tag:
+            if tag == first_surface_tag:
                 # first tag: node_sets start
                 df_entity_sets_pre = pd.DataFrame([
                     ['{', '', '', '', ''],
@@ -263,11 +262,11 @@ def gmsh_converter_tet(in_dir,
                 axis=0,
                 ignore_index=True
             )
-        if Surface_tags:
+        if Volume_tags:
             df_entity_sets = pd.concat([df_entity_sets, df_entity_sets_middle_end],
                                            axis=0,
                                            ignore_index=True)
-        if Surface_tags:
+        if Volume_tags:
             df_entity_sets = pd.concat(
                 [df_entity_sets, pd.DataFrame([','])],
                 axis=0,
@@ -276,12 +275,12 @@ def gmsh_converter_tet(in_dir,
         # ------------------------------------------------------
         # ------------------------------------------------------
 
-        last_index = df_e[df_e.count(axis=1) == 6].index[-1]
+        last_index = df_e[df_e.count(axis=1) == 8].index[-1]
 
-        for tag in Surface_tags.values():
+        for tag in Volume_tags.values():
             df_tag = df_e.copy()
             # slice to get only elements on tagged surface
-            df_tag = df_tag[df_tag.count(axis=1) == 8]
+            df_tag = df_tag[df_tag.count(axis=1) == 12]
             df_tag = df_tag.loc[(df_tag[4] == tag)]
             # create 1 column of all node indices for elements on tagged surface
             df_tag = df_tag.reset_index()
@@ -302,7 +301,7 @@ def gmsh_converter_tet(in_dir,
             df_tag = df_tag.reset_index(drop=True)
             
             # - Create header dataframes for surface: cell_sets! -
-            if tag == first_surface_tag:
+            if tag == first_volume_tag:
                 # first tag: node_sets start
                 df_entity_sets_pre = pd.DataFrame([
                     ['', '"cell_sets": [', '', '', ''],
@@ -359,14 +358,14 @@ def gmsh_converter_tet(in_dir,
         # - 6.1 Create & format parts, then concatenate to dataframe -
         df_velocity_constraints = pd.DataFrame()
         #loop through surfaces, ignore surfaces with no BCs
-        for tag, tuple_loop in Line_tags.items():
+        for tag, tuple_loop in Surface_tags.items():
             if not (len(tuple_loop) == 0 or all(x is None
                                                 for x in tuple_loop)):
                 # - 6.2 Get desired node indices on each surface of interest -
                 df_tag = df_e
-                df_tag = df_tag[df_tag.count(axis=1) == 6]
+                df_tag = df_tag[df_tag.count(axis=1) == 8]
                 #slice to get only elements on tagged surface
-                df_tag = df_tag.loc[(df_tag[4] == tag), [5, 6]]
+                df_tag = df_tag.loc[(df_tag[4] == tag), [5, 6, 7, 8]]
                 #create 1 col of all node indices for elements on tagged surface
                 df_tag = df_tag.stack().reset_index()
                 df_tag = df_tag.drop("level_0", axis=1)
@@ -428,5 +427,5 @@ def gmsh_converter_tet(in_dir,
 # --------------------------------------------------------------------
 # --- MAIN ---
 gmsh_converter_tet(in_dir, ori_file, mesh_flag, entity_sets_flag,
-                   velocity_constraints_flag, Line_Xmin,
-                   Line_Xmax, Line_Ymin, Line_Ymax)
+                   velocity_constraints_flag, Surface_Xmin,
+                   Surface_Xmax, Surface_Ymin, Surface_Ymax,Surface_Zmin,Surface_Zmax,Tunnel_side,Tunnel_front)
